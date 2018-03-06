@@ -5,7 +5,6 @@
 var google = require('googleapis');
 var secrets = require('./secrets.json');
 
-var weight = secrets.weight;
 var sheetId = secrets.sheetId;
 var keyId = secrets.keyId;
 var auth = "API_KEY";
