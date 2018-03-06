@@ -1,6 +1,5 @@
 'use strict';
 
-
 // [START main_body]
 var google = require('googleapis');
 var secrets = require('./secrets.json');

@@ -2,18 +2,72 @@
 
 var google = require('googleapis');
 var Trello = require("trello") // https://github.com/norberteder/trello
+var secrets = require('./secrets.json');
+
+// this holds the tickets coming out of our google spreadsheet
+class Ticket 
+{
+  constructor (theme, boulder, feature, description, swag, pm, pgm, scrumTeam, quadmester, priority)
+  {
+    this.theme = theme;
+    this.boulder = boulder;
+    this.feature = feature;
+    this.description = description;
+    this.swag = swag;
+    this.pm = pm;
+    this.pgm = pgm;
+    this.scrumTeam = scrumTeam;
+    this.quadmester = quadmester;
+    this.priority = priority;
+  }
+}
+
+class Tickets 
+{
+  constructor() 
+  {
+    this.items = [];
+  }
+
+  add(ticket) 
+  {
+    if (this.add.count == undefined)
+      this.add.count = 0;
+    else
+      this.add.count++;
+
+    // associative array for the pms
+    this.pms[ticket.pm] = ticket.pm;
+
+    this.items[this.add.count] = ticket;
+    return ticket;
+  }
+
+  getQuad(quad)
+  {
+    // this is just the tickets that are in the current quadmester
+    return currentQuadsTickets = this.items.filter(
+      function(ticket) 
+      {
+        return ticket.quadmester == quad;
+      }
+    );
+    return
+  }
+
+}
+
+var tickets = new Tickets()
 
 // setup trello as me
-var trello = new Trello("cc24ec0031db052dc1d9d080fa5516ed", "bf58b4b32ed8c4c3a65b88195a941e6c0ef7c93e0705015e1572ab1073281e00");
+var trello = new Trello(secrets.trelloKey, secrets.trelloToken);
 
 // the pm board
-var boardId = "jFwFCR16";
-var sprintBoard = "nwGM34fP";
+var boardId = secrets.boardId;
+var sprintBoard = secrets.sprintBoard;
 
-
-var weight = "1WC7Bm8E5yJ7L-vfhreMahnW8OqJbCyKT-IfT_q_4sKo";
-var sheetId = "1vMySb5GT189--OBZwbCMAXd2YkR-JY3gkJC9u03icIE"
-var keyId = "AIzaSyDYVCKZh2YCt_M6b5rNewwQWFyFXe8e-_4";
+var sheetId = secrets.sheetId;
+var keyId = secrets.keyId;
 var auth = "API_KEY";
 
 // If modifying these scopes, delete your previously saved credentials
@@ -39,43 +93,27 @@ function handleAddCard(error, trelloCard)
   }
 }
 
-// get sheet from google
-getSheet();
-
 var rows;
-var tickets = new Array();
 var pms = {};
 var themes = {};
 var quadmesters = {};
 
-class Ticket 
+// get sheet from google, this also kicks off the rest of the code
+// yay asyncness
+getSheet();
+
+function archiveAllLists()
 {
-  constructor (theme, boulder, feature, description, swag, pm, pgm, scrumTeam, quadmester, priority)
-  {
-    this.theme = theme;
-    this.boulder = boulder;
-    this.feature = feature;
-    this.description = description;
-    this.swag = swag;
-    this.pm = pm;
-    this.pgm = pgm;
-    this.scrumTeam = scrumTeam;
-    this.quadmester = quadmester;
-    this.priority = priority;
-  }
+  
 }
 
-/**
- * Print the names and majors of students in a sample spreadsheet:
- * https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
- */
 function getSheet() {
   var sheets = google.sheets('v4');
   sheets.spreadsheets.values.get({
     auth: auth,
-    key: keyId,
-    spreadsheetId: sheetId,
-    range: 'Consolidated PL!A2:P500',
+    key: secrets.keyId,
+    spreadsheetId: secrets.sheetId,
+    range: 'Consolidated PL!A2:P500', // somehow I'm still getting the header row so I'm not sure the range is doing anything
   }, function(err, response) {
     if (err) {
       console.log('The API returned an error: ' + err);
@@ -88,53 +126,75 @@ function getSheet() {
       // skip the header row
       for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
-//        constructor (theme, boulder, feature, description, swag, pm, pgm, scrumTeam, quadmester, priority)
 
-        tickets[i] = new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]);
-
-        var val = new String(tickets[i].pm);
-        pms[val] = val;
+        // icky constants, i know...
+        var ticket = tickets.add(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
 
         val = new String(tickets[i].quadmester).toLowerCase();
-        if (val != 'duplicate' && val != 'undefined' && val != 'later' && val != 'target period')
-          quadmesters[val] = val;
-        else
-          console.log(val);
+        switch (val) {
+          case 'duplicate':
+          case 'undefined':
+          case 'later':
+          case 'target period':
+            // console.log('skipping ' + val);
+            // do nothing          
+            break;
+          default:
+            // console.log('found ' + val);
+            quadmesters[val] = val;
+            break;
+        }
       }
+      // print out the quadmesters, aren't they pretty?
+      for (const quad in quadmesters) {
+        if (quadmesters.hasOwnProperty(quad)) {
+          const q = quadmesters[quad];
+          for(var i = 1;i <= 7;i++)
+          {
+            quadmesters[q + "-" + i] = q + " S" + i;
+          }          
+        }
+      }
+      console.log(quadmesters);
 
       // i now have my tickets so I need to create the trello board
+      // i'm assuming that the previous stuff works somewhat synchronously, but I'm bluffing
+      // never a great thing when you're programming, but it seems to be working now...
+
+      // i'm new to promises, so i'm sure this syntax is ugly
+      // why oh why is js so weird...
 
       // first I want to create a list per quadmester
       trello.getListsOnBoard(boardId)
-      .then((lists) => // once the function return it calls then
+      .then((lists) => // once the function return it calls then()
       {
         // loop over the quadmesters and make sure I have a 
         // list for each one
         for (var quad in quadmesters)
         {
+          console.log("processing " + quadmesters[quad]);
           var hasList = false;
-          var currentQuadsTickets = tickets.filter(
-            function(ticket) 
-            {
-              return ticket.quadmester == quadmesters[quad];
-            }
-          );
-          // find any of the items in the current quadmester
+
+          // look for any items in the current quadmester
+          // lists sn an object array 
           var currentItem = lists.find(
             function(element) 
             {
-              // i lowercased the quadmesters since the pms are sloppy
+              // i lowercased the quadmesters since the pdgms are sloppy
               return element.name.toLowerCase() == quadmesters[quad];
             }
           );
-          if (currentItem)  // this means I found the item already
+          if (currentItem)  // this means I found the quadmester
           {
               // if I already have a list then I can start adding items to that
               console.log('found list:' + quadmesters[quad]);
-              addCardsToListFromQuadmester(currentItem.id, currentQuadsTickets);
+              addCardsToListFromQuadmester(currentItem.id, tickets.getQuad(quadmesters[quad]));
           }
           else
           {
+            // BUG BUG: right now i'm duplicating any sprint that doesn't have tickets
+            //          fix this when I get back from lunch (or later)
+
             // otherwise i need to create a new list
             trello.addListToBoard(boardId, quadmesters[quad])
             .then((currentItem) => // this can take a while so I use a promise (to get called when I'm done)
@@ -151,6 +211,13 @@ function getSheet() {
         return lists;
       })
       .then((lists) => {
+        // i've created all of the lists now I should order them
+        for (const key in object) {
+          if (object.hasOwnProperty(key)) {
+            const element = object[key];
+            
+          }
+        }
         console.log(lists);          
       })
       .catch((error) => {
