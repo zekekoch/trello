@@ -1,8 +1,9 @@
 'use strict';
 
 var google = require('googleapis');
-var Trello = require('trello') // https://github.com/norberteder/trello
+var Trello = require('trello'); // https://github.com/norberteder/trello
 var secrets = require('./secrets.json');
+var request = require("request");
 
 // this holds the tickets coming out of our google spreadsheet
 class Ticket 
@@ -32,22 +33,41 @@ class Tickets
     this.pms = {};
     this.quadmesters = {};
     this.scrumTeams = {};
+
     this.scrumTeamColors = 
     {
-      Integrations:"pink",
-      Contributor:"red",
+      // orange = 5a947e8835b91abfde48f9ba
+      //Integrations:"pink",
+      Contributor:"5a947e8835b91abfde48f9bc",
+      //BAM: "purple",
 
-      MIB:"blue",
-      Organizations:"sky",
-      Partner:"purple",
+      MIB:"5a947e8835b91abfde48f9be",
+      //Organizations:"sky",
+      Partner:"5a947e8835b91abfde48f9bf",
 
-      eComm:"green",
-      SNAP:"lime",
+      eComm:"5a947e8835b91abfde48f9bd",
+      //SNAP:"lime",
 
-      Infra:"yellow",
-      SRE:"orange",
-      TBD:"black"
+      Infra:"5a947e8835b91abfde48f9bb",
+      //SRE:"black"
     };
+  }
+
+  addTickets(rows)
+  {
+    if (rows.length == 0) 
+    {
+      console.log('No data found.');
+      return;
+    } 
+    // skip the header row
+    for (let i = 0; i < rows.length; i++) 
+    {
+      let row = rows[i];
+
+      // icky constants, i know...
+      let ticket = tickets.add(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
+    }
   }
 
   add(ticket) 
@@ -123,115 +143,25 @@ var SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
 // yay asyncness
 getSheet();
 
-
-function archiveAllLists()
+function clearListsFromBoard(trelloLists)
 {
-  
-}
 
-function getSheet() {
-  let rows = {};
-  let sheets = google.sheets('v4');
-  sheets.spreadsheets.values.get({
-    auth: "API_KEY",
-    key: secrets.keyId,
-    spreadsheetId: secrets.sheetId,
-    range: 'Consolidated PL!A2:P500',
-  }, 
-  function(err, response) 
+  for (const listKey in trelloLists) 
   {
-    if (err) 
+    const list = trelloLists[listKey];
+    let url = '/1/lists/' + list.id + '/closed';
+    let options = { value:'true'};
+    trello.makeRequest("PUT", url, options)
+    .then((result) => 
     {
-      console.log('The google sheets API returned an error: ' + err);
-      return;
-    }
-    let rows = response.data.values;
-    if (rows.length == 0) 
+      console.log(result);
+    })
+    .catch((error) => 
     {
-      console.log('No data found.');
-    } 
-    else 
-    {
-      // skip the header row
-      for (let i = 0; i < rows.length; i++) 
-      {
-        let row = rows[i];
-
-        // icky constants, i know...
-        let ticket = tickets.add(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
-      }
-
-      // i now have my tickets so I need to create the trello board
-      // i'm assuming that the previous stuff works somewhat synchronously, but I'm bluffing
-      // never a great thing when you're programming, but it seems to be working for now...
-
-      // i'm new to promises, so i'm sure this syntax is ugly
-      // why oh why is js so weird...
-
-      // first I want to create a list per quadmester
-      trello.getListsOnBoard(secrets.boardId)
-      .then((trelloLists) => // once the function return it calls then()
-      {
-        // a trelloList has id, idBoard, name, pos etc
-
-        // loop over the quadmesters and get a list of tickets for each one
-        for (let quad in tickets.quadmesters)
-        {
-          console.log("processing " + tickets.quadmesters[quad]);
-
-          // look for any items in the current quadmester
-
-          // look for a trelloList for the current quadmester  
-          let list = trelloLists.find(
-            function(element) 
-            {
-              // i lowercased the quadmesters since the pdgms are sloppy
-              return element.name.toLowerCase() == tickets.quadmesters[quad];
-            }
-          );
-
-          // if I find that trelloList then I don't need to create it 
-          if (list)
-          {
-              // great, I can start adding items to that
-              console.log('found list:' + tickets.quadmesters[quad]);
-              addCardsToListFromQuadmester(list.id, tickets.getQuad(tickets.quadmesters[quad]));
-          }
-          else
-          {
-            // BUG BUG: right now i'm duplicating any sprint that doesn't have tickets
-            //          fix this when I get back from lunch (or later)
-
-            // otherwise i need to create a new list
-            trello.addListToBoard(secrets.boardId, tickets.quadmesters[quad])
-            .then((list) => // this can take a while so I use a promise (to get called when I'm done)
-            {
-              console.log('created list: ' + list.name);  
-              addCardsToListFromQuadmester(list.id, currentQuadsTickets);
-            })
-            .catch((error) =>
-            {
-              console.log('error adding list to board');
-            });
-          }
-        }
-        return trelloLists;
-      })
-      .then((trelloLists) => {
-        // i've created all of the lists now I should order them
-        for (const key in object) {
-          if (object.hasOwnProperty(key)) {
-            const element = object[key];
-            
-          }
-        }
-        console.log(trelloLists);          
-      })
-      .catch((error) => {
-        console.log('error in get list on board' + error);
-      }); 
-    }    
-  });
+      console.log("error closing lists: " + error);
+      throw new Error(error);
+    });
+  }
 }
 
 function addCardsToListFromQuadmester(listId, tickets)
@@ -252,14 +182,148 @@ function addCardsToListFromQuadmester(listId, tickets)
 function addCardsToListFromTicket(listId, ticket)
 {
   let title = ticket.feature + " (" + ticket.swag + ")";
-  console.log('adding ticket to ' + listId + ':' + title);
-  trello.addCard(title, ticket.description, listId)
+  //console.log('adding ticket to ' + listId + ':' + title);
+
+  let extraParams = {
+    desc: ticket.description,
+    idLabels: tickets.scrumTeamColors[ticket.scrumTeam],
+    pos: 0
+  };
+
+  trello.addCardWithExtraParams(title, extraParams, listId)
   .then((data) => 
   {
-    console.log(data);
+    console.log('suceeded');
+    // console.log(data);
   })
   .catch((error) => 
   {
     console.log(error);
+    throw new Error(error);
   })
+}
+
+function getSheet() 
+{
+  let rows = {};
+  let sheets = google.sheets('v4');
+  var req =  
+  {
+    auth: "API_KEY",
+    key: secrets.keyId,
+    spreadsheetId: secrets.sheetId,
+    range: 'Consolidated PL!A2:P500'
+  };
+
+  sheets.spreadsheets.values.get(req, processGoogleSheet);
+}
+
+function processGoogleSheet(err, response)
+{
+  {
+    if (err) 
+    {
+      console.log('The google sheets API returned an error: ' + err);
+      throw new Error(err);
+    }
+
+    tickets.addTickets(response.data.values);
+
+    // i now have my tickets so I need to create the trello board
+    // i'm assuming that the previous stuff works somewhat synchronously, but I'm bluffing
+    // never a great thing when you're programming, but it seems to be working for now...
+
+    // i'm new to promises, so i'm sure this syntax is ugly
+    // why oh why is js so weird...
+
+    // first I want to create a list per quadmester
+    trello.getListsOnBoard(secrets.boardId)
+    .then
+    (
+      (trelloLists) => // once the function return it calls then()
+      {
+        // a trelloList has id, idBoard, name, pos etc
+
+        // start by clearling the lists
+        clearListsFromBoard(trelloLists);
+        return trelloLists;
+      }
+    )
+    .then
+    (
+      (trelloLists) =>
+      {
+        // loop over the quadmesters and get a list of tickets for each one
+        for (let quad in tickets.quadmesters)
+        {
+          console.log("processing " + tickets.quadmesters[quad]);
+
+          // look for a trelloList for the current quadmester  
+          let trelloList = trelloLists.find((list) =>
+            {
+              // i lowercased the quadmesters since the pdgms are sloppy
+              if (list.closed == true)
+                return false;
+              else if (list.name.toLowerCase() == tickets.quadmesters[quad]) 
+                return true;
+              else
+                return false;
+            }
+          );
+
+          // if I find that trelloList then I don't need to create it 
+          if (trelloList)
+          {
+              // great, I can start adding items to that
+              console.log('found trelloList:' + tickets.quadmesters[quad]);
+              addCardsToListFromQuadmester(trelloList.id, tickets.getQuad(tickets.quadmesters[quad]));
+          }
+          else
+          {
+            // BUG BUG: right now i'm duplicating any sprint that doesn't have tickets
+            //          fix this when I get back from lunch (or later)
+
+            // otherwise i need to create a new list
+            trello.addListToBoard(secrets.boardId, tickets.quadmesters[quad])
+            .then
+            (
+              (list) => // this can take a while so I use a promise (to get called when I'm done)
+              {
+                //console.log('created list: ' + list.name);  
+                let quadsTickets = tickets.getQuad(tickets.quadmesters[quad]);
+                // if there are any tickets for this quadmester then let's add them
+                if (quadsTickets.length > 0)
+                  addCardsToListFromQuadmester(list.id, quadsTickets);
+              }
+            )
+            .catch
+            (
+              (error) =>
+              {
+                console.log('error adding list to board: ' + error);
+                throw new Error(error);
+              }
+            );
+          }
+        }
+        return trelloLists;
+      }
+    )
+    .then
+    (
+      (trelloLists) => 
+      {
+        // TODO: i've created all of the lists now I should order them
+        //console.log(trelloLists);          
+      }
+    )
+    .catch
+    (
+      (error) => 
+      {
+        console.log('error in get list on board ' + error);
+        //throw new Error(error);
+      }
+    ); 
+  }
 }
