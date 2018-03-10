@@ -152,9 +152,8 @@ async function clearListsFromBoard(boardId)
       // store them all in a promise array so that I can proces them synchonously
       promises.push(await trello.makeRequest("PUT", url, options));    
     }
-    // now wait until all of the lists have been closes
+    // now wait until all of the lists have been closed
     let values = await Promise.all(promises);
-    console.log(values);
   } 
   catch (error) 
   {
@@ -163,7 +162,7 @@ async function clearListsFromBoard(boardId)
 
 }
 
-async function getLablesFromBoard(boardId)
+async function getLabelsFromBoard(boardId)
 {
   try 
   {
@@ -260,7 +259,7 @@ async function processGoogleSheet(err, response)
     // my Ticket class so that later on I can use that to label/color 
     // my tickets the right scrumTeam. This makes me uncomfortable,
     // but I can't think of a better way right now.
-    await getLablesFromBoard(secrets.boardId);
+    await getLabelsFromBoard(secrets.boardId);
 
     // this simply makes me an array of tickets
     tickets.addTickets(response.data.values);
