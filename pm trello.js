@@ -7,6 +7,7 @@ var secrets = require('./secrets.json');
 // this holds the tickets coming out of our google spreadsheet
 class Ticket 
 {
+
   constructor (theme, boulder, feature, description, swag, pm, pgm, scrumTeam, quadmester, priority)
   {
     this.theme = theme;
@@ -22,25 +23,15 @@ class Ticket
 
     this.priority = priority;
 
-    switch(scrumTeam)
+    if (Ticket.labels)
     {
-      case "Contributor":
-        this.color = "5a947e8835b91abfde48f9bc";
-        break;
-      case "MIB":
-        this.color = "5a947e8835b91abfde48f9be";
-        break;
-      case "Partner":
-        this.color = "5a947e8835b91abfde48f9bf";
-        break;
-      case "eComm":
-        this.color = "5a947e8835b91abfde48f9bd";
-        break;
-      case "Infra":
-        this.color = "5a947e8835b91abfde48f9bb";
-        break;
-      default:
-        this.color = null;
+      this.label = Ticket.labels[scrumTeam];
+      if (!this.label)
+      console.log('missing label for ' + this.scrumTeam);
+    }
+    else
+    {  
+      throw Error('you must add Ticket.labels before creating your first ticket');
     }
   }
 }
@@ -160,6 +151,25 @@ async function clearListsFromBoard(trelloLists)
   }
 }
 
+async function getLablesFromBoard(boardId)
+{
+  try 
+  {
+    const labels = await trello.getLabelsForBoard(boardId);  
+    for (const label of labels) 
+    {
+      if (!Ticket.labels) Ticket.labels = {};
+      Ticket.labels[label.name] = label.id;  
+    }
+    console.log(labels);  
+  } 
+  catch (error) 
+  {
+    console.log('error in get Labels from Board: ' + error);
+  }
+
+}
+
 async function addCardsToListFromQuadmester(listId, tickets)
 {
   let promises = [];
@@ -200,7 +210,7 @@ function addCardToListFromTicket(listId, ticket, position)
   let extraParams = {
     desc: ticket.description,
     //TODO put in the correct labels
-    idLabels: ticket.color,
+    idLabels: ticket.label,
     pos: position
   };
 
@@ -230,7 +240,6 @@ async function processGoogleSheet(err, response)
     throw new Error(err);
   }
 
-  tickets.addTickets(response.data.values);
 
   // i now have my tickets so I need to create the trello board
   // i'm assuming that the previous stuff works somewhat synchronously, but I'm bluffing
@@ -242,6 +251,11 @@ async function processGoogleSheet(err, response)
   // first I want to create a list per quadmester
   try 
   {
+    // this might be a little sketchy
+    await getLablesFromBoard(secrets.boardId);
+
+    tickets.addTickets(response.data.values);
+
     let trelloLists = await trello.getListsOnBoard(secrets.boardId);
     // a trelloList has id, idBoard, name, pos etc
 
