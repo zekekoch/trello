@@ -125,30 +125,42 @@ var trello = new Trello(secrets.trelloKey, secrets.trelloToken);
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/sheets.googleapis.com-nodejs-quickstart.json
+
 // zeke: I don't know if this line does anything...
-var SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];  
+//var SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];  
 
 // get sheet from google, this also kicks off the rest of the code
 // yay asyncness
 getSheet();
 
-async function clearListsFromBoard(trelloLists)
+async function clearListsFromBoard(boardId)
 {
+  // first get a list of all of my boards
+  let lists = await trello.getListsOnBoard(boardId);
 
-  for (const listKey in trelloLists) 
+  // then close/archive them
+  try 
   {
-    let url = '/1/lists/' + trelloLists[listKey].id + '/closed';
-    let options = { value:'true'};
+    let promises = [];
 
-    try 
+    // loop over all of the lists and trigger a close for each one
+    for (const list of lists)     
     {
-      await trello.makeRequest("PUT", url, options);    
-    } 
-    catch (error) 
-    {
-      console.log("error closing lists: " + error);      
+      let url = '/1/lists/' + list.id + '/closed';
+      let options = { value:'true'};
+
+      // store them all in a promise array so that I can proces them synchonously
+      promises.push(await trello.makeRequest("PUT", url, options));    
     }
+    // now wait until all of the lists have been closes
+    let values = await Promise.all(promises);
+    console.log(values);
+  } 
+  catch (error) 
+  {
+    console.log("error closing lists: " + error);      
   }
+
 }
 
 async function getLablesFromBoard(boardId)
@@ -161,7 +173,7 @@ async function getLablesFromBoard(boardId)
       if (!Ticket.labels) Ticket.labels = {};
       Ticket.labels[label.name] = label.id;  
     }
-    console.log(labels);  
+    // console.log(labels);  
   } 
   catch (error) 
   {
@@ -209,7 +221,6 @@ function addCardToListFromTicket(listId, ticket, position)
 
   let extraParams = {
     desc: ticket.description,
-    //TODO put in the correct labels
     idLabels: ticket.label,
     pos: position
   };
@@ -240,62 +251,37 @@ async function processGoogleSheet(err, response)
     throw new Error(err);
   }
 
-
-  // i now have my tickets so I need to create the trello board
-  // i'm assuming that the previous stuff works somewhat synchronously, but I'm bluffing
-  // never a great thing when you're programming, but it seems to be working for now...
-
-  // i'm new to promises, so i'm sure this syntax is ugly
-  // why oh why is js so weird...
-
-  // first I want to create a list per quadmester
+  // I have a spreadsheet from Googl (wahoo)
+  // now I'm going to build a trello board from it.
   try 
   {
-    // this might be a little sketchy
+    // warning: scary side effects! 
+    // getLablesFromBoard pulls the labels from my board and adds them to 
+    // my Ticket class so that later on I can use that to label/color 
+    // my tickets the right scrumTeam. This makes me uncomfortable,
+    // but I can't think of a better way right now.
     await getLablesFromBoard(secrets.boardId);
 
+    // this simply makes me an array of tickets
     tickets.addTickets(response.data.values);
 
-    let trelloLists = await trello.getListsOnBoard(secrets.boardId);
+    // trello boards contains lists of cards. this pulls all of the lists
+    // from my current c
     // a trelloList has id, idBoard, name, pos etc
 
     // start by clearling the lists
-    clearListsFromBoard(trelloLists);
+    // this might be a little sketchy
+    clearListsFromBoard(secrets.boardId);
 
     // loop over the quadmesters and get a list of tickets for each one
     for (let quad in tickets.quadmesters)
     {
-      // console.log("processing " + tickets.quadmesters[quad]);
-
       // if there are any tickets for this quadmester then let's add them
       let quadsTickets = tickets.getQuad(tickets.quadmesters[quad]);
       if (quadsTickets.length > 0)
       {
-                // look for a trelloList for the current quadmester  
-        let trelloList = trelloLists.find
-        (
-          (list) =>
-          {
-            // i lowercased the quadmesters since the pdgms are sloppy
-            if (list.closed == true)
-              return false;
-            else if (list.name.toLowerCase() == tickets.quadmesters[quad]) 
-              return true;
-            else
-              return false;
-          }
-        );
-
-        if (!trelloList) //i need to create a new list
-        {
-          console.log('creating trelloList:' + tickets.quadmesters[quad]);
-          trelloList = await trello.addListToBoard(secrets.boardId, tickets.quadmesters[quad])
-        }
-        else
-        {
-          console.log('found trelloList:' + tickets.quadmesters[quad]);
-        }
-
+        console.log('creating trelloList:' + tickets.quadmesters[quad]);
+        let trelloList = await trello.addListToBoard(secrets.boardId, tickets.quadmesters[quad])
         addCardsToListFromQuadmester(trelloList.id, quadsTickets);
       }
     }
