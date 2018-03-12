@@ -85,18 +85,18 @@ class Tickets
       case undefined:
       case 'later':
       case 'target period':
-        // console.log('skipping ' + val);
+        // console.log(`skipping ${val}`);
         // do nothing          
         break;
       default:
-        // console.log('found ' + val);
+        // console.log(`found ${val}`);
         // create the quadmesters
         this.quadmesters[quadmester] = quadmester;
         
         // add 7 sprints per quadmester
         for(let sprint = 1;sprint <= 7;sprint++)
         {
-          this.quadmesters[quadmester + "-" + sprint] = quadmester + " s" + sprint;
+          this.quadmesters[quadmester + "-" + sprint] = `${quadmester} s${sprint}`;
         }          
         break;
     }
@@ -162,11 +162,22 @@ async function clearListsFromBoard(boardId)
 
 }
 
+// get the labels (names and colors) from the board and puts them in the  
+// Ticket class (so that I can correctly label the tickets as I create them).
+//
+// it's a little creepy to have this code out here because it's two different 
+// systems that shouldn't really have to know about each other (trello and tickets)
+// perhaps I should load the labels seperately and pass them into the tickets
+// in it's constructor, but that didn't feel quite right either
 async function getLabelsFromBoard(boardId)
 {
   try 
   {
+    // it's just one call and it's quick so let's block
     const labels = await trello.getLabelsForBoard(boardId);  
+
+    // right now I only care about the id of the label because
+    // that's what trello uses to set them.
     for (const label of labels) 
     {
       if (!Ticket.labels) Ticket.labels = {};
@@ -192,19 +203,19 @@ async function addCardsToListFromQuadmester(listId, tickets)
     // if the ticket so that I can track them in case of error
     try 
     {
-      console.log ("filling " + tickets.length + " tickets");
+      console.log (`filling ${tickets.length} tickets`);
       for (const ticketId in tickets) 
       {
         promises[ticketId] = addCardToListFromTicket(listId, tickets[ticketId], ticketId);                  
       }    
 
-      // now run all of them at once
+      // now run all of them at once and block until they're all done
       let values = await Promise.all(promises) ;   
-      console.log("added " + values.length + "cards to list")
+      console.log(`added ${values.length} cards to list`)
     } 
     catch (error) 
     {
-      console.log('addCardsToListFromQuadmester: ' + error);      
+      console.log(`addCardsToListFromQuadmester: ${error}`);      
     }
   }
   else
@@ -215,8 +226,7 @@ async function addCardsToListFromQuadmester(listId, tickets)
 
 function addCardToListFromTicket(listId, ticket, position)
 {
-  let title = ticket.feature + " (" + ticket.swag + ")";
-  //console.log('adding ticket to ' + listId + ':' + title);
+  let title = `${ticket.feature}: (${ticket.swag})`;
 
   let extraParams = {
     desc: ticket.description,
@@ -246,7 +256,7 @@ async function processGoogleSheet(err, response)
 {
   if (err) 
   {
-    console.log('The google sheets API returned an error: ' + err);
+    console.log(`The google sheets API returned an error: ${err}`);
     throw new Error(err);
   }
 
@@ -279,7 +289,7 @@ async function processGoogleSheet(err, response)
       let quadsTickets = tickets.getQuad(tickets.quadmesters[quad]);
       if (quadsTickets.length > 0)
       {
-        console.log('creating trelloList:' + tickets.quadmesters[quad]);
+        console.log(`creating trelloList: ${tickets.quadmesters[quad]}`);
         let trelloList = await trello.addListToBoard(secrets.boardId, tickets.quadmesters[quad])
         addCardsToListFromQuadmester(trelloList.id, quadsTickets);
       }
