@@ -1,0 +1,41 @@
+{
+    "env": {
+        "browser": false,
+        "es6": true,
+        "node": true
+    },
+    "extends": "eslint:recommended",
+    "parserOptions": {
+        "ecmaVersion": 2018
+    },
+    "rules": {
+        "no-console": "off",
+        "indent": 
+        [
+            "error",
+            2,
+            {"SwitchCase":1}
+        ],
+        "linebreak-style": [
+            "error",
+            "unix"
+        ],
+        "quotes": [
+            "error",
+            "single"
+        ],
+        "no-new-object" : "error",
+        "semi": ["error","always"],
+        "no-var" : "error",
+        "prefer-const" : "error", 
+        "no-const-assign" : "error",
+        "object-shorthand" : "error",
+        "quote-props" : ["error", "consistent-as-needed"],
+        "prefer-template" : "error",
+        "no-param-reassign" : "error",
+        "prefer-arrow-callback" : "error",
+        "no-iterator": "error",
+        "eqeqeq": "error",
+        "no-new-wrappers": "error"
+    }
+}
