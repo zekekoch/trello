@@ -15,8 +15,10 @@ class Ticket
     this.theme = theme;
     this.boulder = boulder;
     this.feature = feature;
+    this.title = feature;
     this.description = description;
     this.swag = swag;
+    this.sprintSwag = 0;
     this.pm = pm;
     this.pgm = pgm;
     this.scrumTeam = scrumTeam;
@@ -134,7 +136,7 @@ class Tickets
         {
           this.sprints[quadmester] = [];        
           // add 7 sprints per quadmester
-          for(let sprint = 1;sprint <= 7;sprint++)
+          for(let sprint = 0;sprint < 7;sprint++)
           {
             this.sprints[quadmester][sprint] = `${quadmester} (s${sprint})`;
           }          
@@ -166,13 +168,12 @@ async function clearListsFromBoard(boardId) // eslint-disable-line
   try 
   {
     const promises = [];
+    const options = {value:'true'};
 
     // loop over all of the lists and trigger a close for each one
     for (const list of lists)     
     {
       const url = `/1/lists/${list.id}/closed`;
-      const options = {value:'true'};
-
       // store them all in a promise array so that I can proces them synchonously
       promises.push(await trello.makeRequest('PUT', url, options));    
     }
@@ -204,7 +205,8 @@ async function getLabelsFromBoard(boardId)
     // that's what trello uses to set them.
     for (const label of labels) 
     {
-      if (!Ticket.labels) Ticket.labels = {};
+      if (!Ticket.labels) 
+        Ticket.labels = {};
       Ticket.labels[label.name] = label.id;  
     }
     // console.log(labels);  
@@ -215,7 +217,7 @@ async function getLabelsFromBoard(boardId)
   }
 }
 
-async function addCardsToListFromQuadmester(listId, tickets)
+async function addCardsToListFromTickets(listId, tickets)
 {
   if (!tickets)
   {
@@ -251,7 +253,8 @@ function addCardToListFromTicket(listId, ticket, position)
 {
   const title = `${ticket.feature}: (${ticket.swag})`;
 
-  const extraParams = {
+  const extraParams = 
+  {
     desc: ticket.description,
     idLabels: ticket.label,
     pos: position,
@@ -311,7 +314,10 @@ async function processGoogleSheet(err, response)
       const quadsTickets = tickets.getQuad(quadmester);
       if (quadsTickets.length > 0)
       {
-        addCardsToSprints(quadmester, quadsTickets);
+        addCardsToQuadmester(quadmester, quadsTickets);
+        
+        const sprintsTickets = splitQuadTicketsIntoSprintsTickets(quadsTickets);
+        addCardsToSprints(quadmester, sprintsTickets);
       }
       else
       {
@@ -325,26 +331,126 @@ async function processGoogleSheet(err, response)
   }
 }
 
+// takes a ticket and splits it into 10 sprint units
+function splitTicketIntoSprints(ticket)
+{
+  const ticketSize = ticket.swag;
+  let lastSprintSize = 10;
+  if (ticketSize % 10 !== 0)
+    lastSprintSize = ticketSize % 10;
+
+  // round up for the number of tickets
+  const numberOfTickets = Math.ceil(ticketSize / 10);
+
+  const sprintTickets = [];
+  for(let index = 0;index < numberOfTickets;index++)
+  {
+    const sprintTicket = Object.assign({}, ticket);
+    sprintTicket.title = `${sprintTicket.title} ${index+1}/${numberOfTickets}`; 
+
+    // the last ticket can be a fraction of 10 points.
+    if (index === numberOfTickets - 1)
+      sprintTicket.sprintSwag = lastSprintSize;
+    else
+      sprintTicket.sprintSwag = 10;
+
+    sprintTickets.push(sprintTicket);
+  }
+
+  console.log(sprintTickets);
+  return sprintTickets;
+}
+
+// takes a quadmester's worth of tickets and breaks them into 
+// a tickets for each engineers sprint's worth of work
+function splitQuadTicketsIntoSprintsTickets(tickets)
+{
+  const sprintsTickets = [];
+  for(const ticket of tickets)
+  {
+    sprintsTickets.push(splitTicketIntoSprints(ticket));
+  }
+  console.log(sprintsTickets);
+  return sprintsTickets;
+}
+
+// takes and array of arrays of tickets that are already split into
+// single engineer sprint chunks
+function disperseTicketsIntoSprints(tickets)
+{}
+
+
+// takes a list of tickets for a series of sprints and 
+// add them to the trello board
+
+// TODO: right now this function is incorrect i'm in the middle of 
+// cleaning up the code. This was writteb before I started splitting
+// the tickets seperately from creating the trello cards
 async function addCardsToSprints(quadmester, quadTickets)
+{
+  try 
+  {    
+    console.log(`add cards to sprint ${quadmester}`);
+
+    // create a trello list for each sprint in the quadmester
+    // to do this in parallel I collect all of the function calls
+    // into an array of promises and then call then all at once with
+    // promise.all 
+    const promises = [];
+    for (const sprint of tickets.sprints[quadmester])
+    {
+      promises.push(trello.addListToBoard(secrets.boardId, sprint));
+    }
+    // collect all of the lists from my promises
+    const lists = await Promise.all(promises);
+
+    splitTicketIntoSprints(quadTickets);
+
+    for (const list of lists) 
+    {
+      if(!list.id)
+        console.log('missing id in addCardsToSpring');
+      else
+        console.log(`add cards to sprint: ${list.name}`);
+    }
+
+    const teams = [];
+    // collect the tickets grouped by scrumteam
+    for (const team in tickets.scrumTeams) 
+    {
+      // get a list of the tickets for a given team in a quadmester
+      const teamsTickets = quadTickets.filter(ticket => {return ticket.scrumTeam === team;});
+      //store them in an array
+      teams.push(teamsTickets);
+
+      // now I need to loop over them adding them to the sprints
+      const sprintBudget = tickets.velocity[team];
+      for(const ticket in teamsTickets)
+      {
+        console.log(ticket);
+      }
+    }
+    console.log(teams);  
+  } 
+  catch (error) 
+  {
+    console.log(`add cards to team ${error}`);
+    throw Error(error);
+    
+  }
+}
+
+async function addCardsToQuadmester(quadmester, quadTickets)
 {
   try 
   {
     console.log(`creating trelloList: ${quadmester}`);
+
     // first create a list for the whole quadmester
+    // and create cards for each ticket and add them to that list
     const trelloList = await trello.addListToBoard(secrets.boardId, quadmester);
-    // next create cards for each ticket
-    addCardsToListFromQuadmester(trelloList.id, quadTickets);   
-
-    // get a list for each sprint in the quadmester
-    const list = {};
-    for (const sprint of tickets.sprints[quadmester])
-    {
-      list[sprint] = await trello.addListToBoard(secrets.boardId, sprint);
-    }
-
-    // next create cards for each ticket
-    addCardsToListFromQuadmester(list.id, quadTickets);       
-
+    await addCardsToListFromTickets(trelloList.id, quadTickets);   
+    await addCardsToSprints(quadmester, quadTickets);
   } 
   catch (error) 
   {
@@ -367,5 +473,12 @@ const trello = new Trello(secrets.trelloKey, secrets.trelloToken);
 
 // get sheet from google, this also kicks off the rest of the code
 // yay asyncness
-getSheet();
+try 
+{
+  getSheet();  
+} 
+catch (error) 
+{
+  console.log(`can't get google sheet: ${error}`);
+}
 
