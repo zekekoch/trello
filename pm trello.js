@@ -22,22 +22,17 @@ class Ticket
     this.pm = pm;
     this.pgm = pgm;
     this.scrumTeam = scrumTeam;
+    this.sprint = "";
     if (quadmester)
       this.quadmester = quadmester.toLowerCase();
 
     this.priority = priority;
 
-    if (Ticket.labels)
+    if (!Ticket.labels) throw Error('you must add Ticket.labels before creating your first ticket');
+    this.label = Ticket.labels[scrumTeam];
+    if (!this.label)
     {
-      this.label = Ticket.labels[scrumTeam];
-      if (!this.label)
-      {
-        console.log(`missing label for ${this.scrumTeam}`);
-      }
-    }
-    else
-    {  
-      throw Error('you must add Ticket.labels before creating your first ticket');
+      console.log(`missing label for ${this.feature} (${this.scrumTeam})`);
     }
   }
 }
@@ -76,13 +71,16 @@ class Tickets
       console.log('No data found.');
       return;
     } 
-    // skip the header row
+
     for (let i = 0; i < rows.length; i++) 
     {
       const row = rows[i];
 
       // icky constants, i know...
-      tickets.add(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
+      // todo: at some point I'd like to use the names of the headers to 
+      // map the columns so that if someone adds columns to the spreadsheet
+      // I can still find all of my data
+      tickets.push(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
     }
   }
 
@@ -102,16 +100,10 @@ class Tickets
     }
   }
 
-  add(ticket) 
+  push(ticket) 
   {
-    // poor man's static variable, there must be a better idiom in js
-    if (this.length === undefined)
-      this.length = 0;
-    else
-      this.length++;
-
     // add the ticket to the list of tickets
-    this.items[this.length] = ticket;
+    this.items.push(ticket);
 
     // create an associative array for the pms & scrumteams
     this.pms[ticket.pm] = ticket.pm;
@@ -314,10 +306,20 @@ async function processGoogleSheet(err, response)
       const quadsTickets = tickets.getQuad(quadmester);
       if (quadsTickets.length > 0)
       {
-        addCardsToQuadmester(quadmester, quadsTickets);
         
         const sprintsTickets = splitQuadTicketsIntoSprintsTickets(quadsTickets);
-        addCardsToSprints(quadmester, sprintsTickets);
+        const dispersedTickets = flattenTicketGroups(sprintsTickets);
+
+        // for each team allocate tickets to the sprints
+        for(team in tickets.scrumTeams)
+        {
+          const teamsTickets = quadTickets.filter(ticket => {return ticket.scrumTeam === team;});
+          allocateTicketsToSprints(teamsTickets, quad);
+        }
+
+
+        addCardsToQuadmester(quadmester, quadsTickets);
+        addCardsToSprints(quadmester, dispersedTickets);
       }
       else
       {
@@ -329,6 +331,11 @@ async function processGoogleSheet(err, response)
   {
     console.log(error);
   }
+}
+
+function allocateTicketsToSprints(teamsTickets, quadmester)
+{
+
 }
 
 // takes a ticket and splits it into 10 sprint units
@@ -363,21 +370,31 @@ function splitTicketIntoSprints(ticket)
 
 // takes a quadmester's worth of tickets and breaks them into 
 // a tickets for each engineers sprint's worth of work
-function splitQuadTicketsIntoSprintsTickets(tickets)
+function splitQuadTicketsIntoSprintsTickets(quadsTickets)
 {
   const sprintsTickets = [];
-  for(const ticket of tickets)
+  for(const ticket of quadsTickets)
   {
     sprintsTickets.push(splitTicketIntoSprints(ticket));
   }
-  console.log(sprintsTickets);
   return sprintsTickets;
 }
 
 // takes and array of arrays of tickets that are already split into
 // single engineer sprint chunks
-function disperseTicketsIntoSprints(tickets)
-{}
+function flattenTicketGroups(ticketGroups)
+{
+  const sprintTicketList = new Tickets();
+
+  for(const group of ticketGroups)
+  {
+    for(const ticket of group)
+    {
+      sprintTicketList.items.push(ticket);
+    }
+  }
+  return(sprintTicketList);
+}
 
 
 // takes a list of tickets for a series of sprints and 
@@ -396,6 +413,7 @@ async function addCardsToSprints(quadmester, quadTickets)
     // to do this in parallel I collect all of the function calls
     // into an array of promises and then call then all at once with
     // promise.all 
+
     const promises = [];
     for (const sprint of tickets.sprints[quadmester])
     {
@@ -409,11 +427,14 @@ async function addCardsToSprints(quadmester, quadTickets)
     for (const list of lists) 
     {
       if(!list.id)
+      {
         console.log('missing id in addCardsToSpring');
+      }
       else
+      {
         console.log(`add cards to sprint: ${list.name}`);
+      }
     }
-
     const teams = [];
     // collect the tickets grouped by scrumteam
     for (const team in tickets.scrumTeams) 
@@ -440,6 +461,11 @@ async function addCardsToSprints(quadmester, quadTickets)
   }
 }
 
+async function addTicketsToSprints(ticketList)
+{
+  console.log(ticketList);
+}
+
 async function addCardsToQuadmester(quadmester, quadTickets)
 {
   try 
@@ -450,8 +476,9 @@ async function addCardsToQuadmester(quadmester, quadTickets)
     // and create cards for each ticket and add them to that list
     const trelloList = await trello.addListToBoard(secrets.boardId, quadmester);
     await addCardsToListFromTickets(trelloList.id, quadTickets);   
-    await addCardsToSprints(quadmester, quadTickets);
-  } 
+    const ticketList = await flattenTicketGroups(quadmester, quadTickets);
+
+  }   
   catch (error) 
   {
     console.log(`error adding cards to sprint ${error}`);
