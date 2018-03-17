@@ -22,31 +22,29 @@ class Ticket
     this.pm = pm;
     this.pgm = pgm;
     this.scrumTeam = scrumTeam;
-    this.sprint = "";
+    this.sprint = '';
     if (quadmester)
       this.quadmester = quadmester.toLowerCase();
 
     this.priority = priority;
 
-    if (!Ticket.labels) throw Error('you must add Ticket.labels before creating your first ticket');
-    this.label = Ticket.labels[scrumTeam];
+    if (Ticket.labels)
+      this.label = Ticket.labels[scrumTeam];
     if (!this.label)
     {
+      this.label = null;
       console.log(`missing label for ${this.feature} (${this.scrumTeam})`);
     }
   }
 }
 
-class Tickets 
+class ScrumTeam
 {
-  constructor() 
+  constructor(name)
   {
-    this.items = [];
-    this.pms = {};
-    this.quadmesters = {};
-    this.sprints = {};
-    this.scrumTeams = {}; 
-    this.velocity = 
+    // TODO: hack that this is hard coded and also I assume the same
+    //       velocity fo all sprints
+    this._velocity = 
       {
         BAM: 6,
         Infrastructure: 6,
@@ -62,7 +60,86 @@ class Tickets
         SNAP: 8, 
         Content: 5,
       };
+
+    this.name = name;
+    this.velocity = this._velocity[name];
   }
+
+}
+
+class ScrumTeams
+{
+  constructor()
+  {
+    this.items = new Map();
+  }
+
+  *[Symbol.iterator]() 
+  {  
+    for(const [, value] of this.items)
+    {
+      yield value;
+    }
+  }
+
+  add(team)
+  {
+    this.items.set(team, new ScrumTeam(team));
+  }  
+}
+
+
+class Quadmesters
+{
+  constructor()
+  {
+    this.items = new Map();
+  }
+
+  *[Symbol.iterator]() 
+  {  
+    for(const [, value] of this.items)
+    {
+      yield value;
+    }
+  }
+
+  add(quadmester)
+  {
+    this.items.set(quadmester, new Quadmester(quadmester));
+  }
+}
+
+class Quadmester
+{
+  constructor(name)
+  {
+    this.name = name;
+    this.sprints = [];
+    for(let i = 0;i<7;i++)
+      this.sprints.push(`${name} s(${i})`);
+  }
+}
+
+class Tickets 
+{
+  constructor() 
+  {
+    this.items = [];
+    this.pms = new Set();
+    this.quadmesters = new Quadmesters();
+    this.scrumTeams = new ScrumTeams(); 
+    this.sprints = new Map();
+  }
+
+  *[Symbol.iterator]() 
+  {  
+    for(const ticket of this.items)
+    {
+      yield ticket;
+    }
+  }
+
 
   addTickets(rows)
   {
@@ -100,18 +177,33 @@ class Tickets
     }
   }
 
+  log()
+  {
+    for (const ticket of this.tickets)
+    {
+      console.log(`${ticket.quadmester}:${ticket.sprint}: ${ticket.feature}`);
+    }
+  }
+
   push(ticket) 
   {
+    if (!ticket)
+    {
+      console.log('push requires a ticket');
+      return;
+    }
     // add the ticket to the list of tickets
     this.items.push(ticket);
 
     // create an associative array for the pms & scrumteams
-    this.pms[ticket.pm] = ticket.pm;
-    this.scrumTeams[ticket.scrumTeam] = ticket.scrumTeam;
+    if (ticket.pm)
+      this.pms.add(ticket.pm);
+
+    if (ticket.scrumTeam)
+      this.scrumTeams.add(ticket.scrumTeam);
 
     // skip the garbage quadmesters
-    const quadmester = ticket.quadmester;
-    switch (quadmester) 
+    switch (ticket.quadmester) 
     {
       case 'duplicate':
       case undefined:
@@ -122,24 +214,15 @@ class Tickets
         break;
       default:
         // console.log(`found ${val}`);
-        // create the quadmesters
-        this.quadmesters[quadmester] = quadmester;
-        if (!this.sprints[quadmester])
-        {
-          this.sprints[quadmester] = [];        
-          // add 7 sprints per quadmester
-          for(let sprint = 0;sprint < 7;sprint++)
-          {
-            this.sprints[quadmester][sprint] = `${quadmester} (s${sprint})`;
-          }          
-        }
+        // first add it to a set so I don't get duplicates
+        this.quadmesters.add(ticket.quadmester);
         break;
     }
 
     return ticket;
   }
 
-  getQuad(quad)
+  getQuadmester(quad)
   {
     // this is just the tickets that are in the current quadmester
     return this.items.filter( 
@@ -149,6 +232,19 @@ class Tickets
       }
     );  
   }
+
+  getTeamQuadmester(quadmester, team)
+  {
+    // this is just the tickets that are in the current quadmester
+    return this.items.filter( 
+      (ticket) =>
+      {
+        return ticket.quadmester === quadmester.name && ticket.scrumTeam === team.name;
+      }
+    );  
+  }
+
+
 }
 
 async function clearListsFromBoard(boardId) // eslint-disable-line
@@ -269,6 +365,7 @@ function getSheet()
   sheets.spreadsheets.values.get(req, processGoogleSheet);
 }
 
+// this is the event handler for processing the spreadsheet I get from google
 async function processGoogleSheet(err, response)
 {
   if (err) 
@@ -287,43 +384,46 @@ async function processGoogleSheet(err, response)
     // my Ticket class so that later on I can use that to label/color 
     // my tickets the right scrumTeam. This makes me uncomfortable,
     // but I can't think of a better way right now.
-    await getLabelsFromBoard(secrets.boardId);
+    // TODO: turn this back on
+    //await getLabelsFromBoard(secrets.boardId);
 
-    // this simply makes me an array of tickets
+    // this simply makes me an array of tickets from the spreadsheet rows
     tickets.addTickets(response.data.values);
 
     // save the tickets (from the google spreadsheet to a json file)
-    tickets.saveToFile();
+    // TODO: turn this back on
+    //tickets.saveToFile();
 
     // start by archiving the lists this is might be a little sketchy
-    clearListsFromBoard(secrets.boardId);
+    // TODO: turn this back on
+    //clearListsFromBoard(secrets.boardId);
 
     // loop over the quadmesters and get a list of tickets for each one
-    for (const quad in tickets.quadmesters)
+    for (const quadmester of tickets.quadmesters)
     {
-      // if there are any tickets for this quadmester then let's add them
-      const quadmester = tickets.quadmesters[quad];
-      const quadsTickets = tickets.getQuad(quadmester);
-      if (quadsTickets.length > 0)
+      for (const team of tickets.scrumTeams)
       {
-        
-        const sprintsTickets = splitQuadTicketsIntoSprintsTickets(quadsTickets);
-        const dispersedTickets = flattenTicketGroups(sprintsTickets);
-
-        // for each team allocate tickets to the sprints
-        for(team in tickets.scrumTeams)
+        // if there are any tickets for this quadmester then let's add them
+        const teamTickets = tickets.getTeamQuadmester(quadmester, team);
+        if(teamTickets.length === 0)
         {
-          const teamsTickets = quadTickets.filter(ticket => {return ticket.scrumTeam === team;});
-          allocateTicketsToSprints(teamsTickets, quad);
+          console.log(`${quadmester.name}, team ${team.name} doesn't have any tickets`);
+          break; // get the next quadmester/team
         }
 
+        const sprintsTickets = splitQuadTicketsIntoSprintsTickets(teamTickets);
+        //const flattenedTickets = flattenTicketGroups(sprintsTickets);
 
-        addCardsToQuadmester(quadmester, quadsTickets);
-        addCardsToSprints(quadmester, dispersedTickets);
-      }
-      else
-      {
-        console.log(`there aren't any tickets for ${quad}`);
+        const allocatedTickets = allocateTicketsToSprints(sprintsTickets);
+        for (const ticket of allocatedTickets)
+        {
+          console.log(`${ticket.quadmester}:${ticket.sprint}: ${ticket.feature}`);
+        }
+    
+
+
+        //addCardsToQuadmester(quadmester, quadsTickets);
+        //addCardsToSprints(quadmester, dispersedTickets);
       }
     }
   }
@@ -333,9 +433,60 @@ async function processGoogleSheet(err, response)
   }
 }
 
-function allocateTicketsToSprints(teamsTickets, quadmester)
+class SprintAllocator
 {
+  constructor()
+  {
+    this.velocity = [6,6,6,6,6,6,6];
+    this.currentSprint = 0;
+  }
 
+  setSprint(ticket)
+  {
+    // if there's room in the current sprint then I can put the ticket there
+    if(this.velocity[this.currentSprint] > 0)
+    {
+      // put the ticket in the sprint and consume one of the velocity
+      ticket.sprint = this.currentSprint;
+      this.velocity[this.currentSprint] -= 1;
+      this.currentSprint = (this.currentSprint + 1) % 7;
+    }
+    else if (this.velocity[this.currentSprint] === 0)
+    {
+      for(const s in this.velocity)
+      {
+        if(this.velocity[s] !== 0)
+        {
+          ticket.sprint = s;
+          this.velocity[this.currentSprint] -= 1;
+          this.currentSprint = (this.currentSprint + 1) % 7;
+        }
+      }
+      // if I made it here then all of the sprints are full
+      console.log(`can't add ticket ${ticket.feature}. quadmester full!`);
+    }
+    return ticket;
+  }
+
+}
+
+function allocateTicketsToSprints(teamsTickets)
+{
+  const theTickets = [];
+  const allocator = new SprintAllocator();
+  for (const ticketGroup of teamsTickets)
+  {
+    for (const ticket of ticketGroup)
+    {
+      const tick = allocator.setSprint(ticket);
+      if(tick)
+        theTickets.push(tick);
+      else
+        console.log(`sprint allocator returned empty ${ticket}`);
+
+    }
+  }
+  return(theTickets);
 }
 
 // takes a ticket and splits it into 10 sprint units
@@ -364,7 +515,7 @@ function splitTicketIntoSprints(ticket)
     sprintTickets.push(sprintTicket);
   }
 
-  console.log(sprintTickets);
+  //console.log(sprintTickets);
   return sprintTickets;
 }
 
@@ -372,7 +523,7 @@ function splitTicketIntoSprints(ticket)
 // a tickets for each engineers sprint's worth of work
 function splitQuadTicketsIntoSprintsTickets(quadsTickets)
 {
-  const sprintsTickets = [];
+  const sprintsTickets = new Tickets();
   for(const ticket of quadsTickets)
   {
     sprintsTickets.push(splitTicketIntoSprints(ticket));
@@ -445,7 +596,7 @@ async function addCardsToSprints(quadmester, quadTickets)
       teams.push(teamsTickets);
 
       // now I need to loop over them adding them to the sprints
-      const sprintBudget = tickets.velocity[team];
+      //const sprintBudget = team.velocity[team];
       for(const ticket in teamsTickets)
       {
         console.log(ticket);
@@ -461,10 +612,12 @@ async function addCardsToSprints(quadmester, quadTickets)
   }
 }
 
+/*
 async function addTicketsToSprints(ticketList)
 {
   console.log(ticketList);
 }
+*/
 
 async function addCardsToQuadmester(quadmester, quadTickets)
 {
@@ -477,6 +630,7 @@ async function addCardsToQuadmester(quadmester, quadTickets)
     const trelloList = await trello.addListToBoard(secrets.boardId, quadmester);
     await addCardsToListFromTickets(trelloList.id, quadTickets);   
     const ticketList = await flattenTicketGroups(quadmester, quadTickets);
+    console.log(ticketList);
 
   }   
   catch (error) 
