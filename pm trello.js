@@ -458,7 +458,7 @@ class SprintAllocator
     {
       for (const v in this.velocity) 
       {
-        if (velocity[v] > 0) 
+        if (this.velocity[v] > 0) 
           this.currentSprint = v;
       }
     }
