@@ -322,8 +322,10 @@ async function addCardsToTrello(theTickets)
   {
     // get the list of lists from Trello
     const trelloLists = await trello.getListsOnBoard(secrets.boardId);  
+
+    // cache the lists in a Map
     const lists = new Map();
-    for (list of trelloLists)
+    for (const list of trelloLists)
     {
       lists.set(list.name, list.id);
     }
@@ -442,17 +444,6 @@ async function processGoogleSheet(err, response)
   }
 }
 
-function getListsFromTickets(theTickets)
-{
-  const listSet = new Set();
-  for (const ticket of theTickets) 
-  {
-    listSet.add(ticket.sprint);  
-  }
-
-  return listSet;
-}
-
 class SprintAllocator
 {
   constructor()
@@ -463,14 +454,26 @@ class SprintAllocator
 
   setSprint(ticket)
   {
+    if (ticket.currentTicketNumber === ticket.numberOfTickets)
+    {
+      for (const v in this.velocity) 
+      {
+        if (velocity[v] > 0) 
+          this.currentSprint = v;
+      }
+    }
     // if there's room in the current sprint then I can put the ticket there
     if(this.velocity[this.currentSprint] > 0)
     {
       // put the ticket in the sprint and consume one of the velocity
       ticket.sprint = this.currentSprint;
       this.velocity[this.currentSprint] -= 1;
+
+      // increment the current sprint (wrapping 0-6)
       this.currentSprint = (this.currentSprint + 1) % 7;
     }
+
+    // if I run out of velocity in this sprint then move to the next sprint
     else if (this.velocity[this.currentSprint] === 0)
     {
       for(const s in this.velocity)
@@ -524,7 +527,9 @@ function splitTicketIntoSprints(ticket)
   for(let index = 0;index < numberOfTickets;index++)
   {
     const sprintTicket = Object.assign({}, ticket);
-    sprintTicket.title = `${sprintTicket.title} ${index+1}/${numberOfTickets}`; 
+    sprintTicket.numberOfTickets = numberOfTickets;
+    sprintTicket.currentTicketNumber = index+1;
+    sprintTicket.title = `${sprintTicket.title} ${sprintTicket.numberOfTickets}/${sprintTicket.currentTicketNumber}`; 
 
     // the last ticket can be a fraction of 10 points.
     if (index === numberOfTickets - 1)
@@ -550,23 +555,6 @@ function splitQuadTicketsIntoSprintsTickets(quadsTickets)
   }
   return sprintsTickets;
 }
-
-// takes and array of arrays of tickets that are already split into
-// single engineer sprint chunks
-function flattenTicketGroups(ticketGroups)
-{
-  const sprintTicketList = new Tickets();
-
-  for(const group of ticketGroups)
-  {
-    for(const ticket of group)
-    {
-      sprintTicketList.items.push(ticket);
-    }
-  }
-  return(sprintTicketList);
-}
-
 
 // takes a list of tickets for a series of sprints and 
 // add them to the trello board
@@ -627,24 +615,6 @@ async function addCardsToSprints(quadmester, quadTickets)
     console.log(`add cards to team ${error}`);
     throw Error(error);
     
-  }
-}
-
-async function addCardsToNewList(listName, listTickets)
-{
-  try 
-  {
-    console.log(`creating trelloList: ${listName}`);
-
-    // first create a list for the whole quadmester
-    // and create cards for each ticket and add them to that list
-    const trelloList = await trello.addListToBoard(secrets.boardId, listName);
-    await addCardsToListFromTickets(trelloList.id, listTickets);   
-
-  }   
-  catch (error) 
-  {
-    console.log(`error adding cards to sprint ${error}`);
   }
 }
 
