@@ -5,6 +5,7 @@ const Trello = require('trello'); // https://github.com/norberteder/trello
 const secrets = require('./secrets.json');
 const fs = require('fs');
 const util = require('util');
+const http = require('http');
 
 // this holds the tickets coming out of our google spreadsheet
 class Ticket 
@@ -157,7 +158,7 @@ class Tickets
       // todo: at some point I'd like to use the names of the headers to 
       // map the columns so that if someone adds columns to the spreadsheet
       // I can still find all of my data
-      tickets.push(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
+      this.push(new Ticket(row[0], row[1], row[2], row[3], row[5], row[7], row[8], row[9], row[11], row[15]));
     }
   }
 
@@ -399,7 +400,7 @@ async function processGoogleSheet(err, response)
     // my Ticket class so that later on I can use that to label/color 
     // my tickets the right scrumTeam. This makes me uncomfortable,
     // but I can't think of a better way right now.
-    await getLabelsFromBoard(secrets.boardId);
+    //await getLabelsFromBoard(secrets.boardId);
 
     // this simply makes me an array of tickets from the spreadsheet rows
     tickets.addTickets(response.data.values);
@@ -409,7 +410,7 @@ async function processGoogleSheet(err, response)
     //tickets.saveToFile();
 
     // start by archiving the lists this is might be a little sketchy
-    await clearListsFromBoard(secrets.boardId);
+    //await clearListsFromBoard(secrets.boardId);
 
     // loop over the quadmesters and get a list of tickets for each one
     let allTickets = [];
@@ -430,13 +431,11 @@ async function processGoogleSheet(err, response)
 
         const allocatedTickets = allocateTicketsToSprints(sprintsTickets);
         allTickets = allTickets.concat(allocatedTickets);
-        for (const ticket of allocatedTickets)
-        {
-          console.log(`${ticket.quadmester}:${ticket.sprint}:${ticket.scrumTeam} ${ticket.feature}`);
-        }    
       }
     }
-    addCardsToTrello(allTickets);
+
+    renderCardsToHTML(prepareTicketsForOutput(allTickets));
+    //addCardsToTrello(allTickets);
   }
   catch(error)
   {
@@ -444,29 +443,128 @@ async function processGoogleSheet(err, response)
   }
 }
 
+function prepareTicketsForOutput(theTickets)
+{
+  const tmpTickets = new Tickets();
+  tmpTickets.addTickets(theTickets);
+
+  const outTickets = [];
+
+  for(const sprint of tmpTickets.sprints)
+  {
+    for(const team of tmpTickets.scrumTeams)
+    {
+      for(const ticket of tmpTickets.ticketsFromSprintTeams(team, sprint))
+      {
+        outTickets.push(ticket);
+      }
+    }
+  }
+
+  console.log(theTickets);
+  return outTickets;
+}
+
+function ticketsFromSprintTeams(sprint, team, theTickets)
+{
+  return theTickets.filter(
+    ticket => 
+    {
+      if ((ticket.sprint === sprint) && (ticket.scrumTeam === team))
+        return true;
+      else
+        return false;
+    }
+  );
+}
+
+function renderCardsToHTML(allTickets)
+{
+  const sprints = new Set();
+  const teams = new Set();
+  for (const ticket of allTickets)
+  {
+    sprints.add(ticket.sprint);
+    teams.add(ticket.scrumTeam);
+  }
+
+
+  http.createServer (
+    (req, res) => 
+    {
+      res.write('<html><head>');
+      res.write('<style>');
+      res.write('table{border-collapse: collapse;}');
+      res.write('table, th, td {border: 1px solid black;}');
+      res.write('</style>');
+      res.write('</head><body>');
+      res.write('<table border=1>');
+      res.write('<tr><td>Sprint</td>');
+      for(const sprint of sprints)
+      {
+        res.write(`<td>${sprint}</td>`);
+      }
+      res.write('</tr>');
+    
+      for(const team of teams)
+      {
+        for(const s of teams.velocity)
+        {
+          res.write(`<tr><td>${team}</td>`);
+          for(const sprint of sprints)
+          {
+            res.write('<td>');
+            const tsTickets = ticketsFromSprintTeams(sprint, team, allTickets);
+            for (const ticket of tsTickets)
+            {
+              try {
+                res.write(`${ticket.title}<br>`);                        
+              } catch (error) {
+                console.log(error);
+              }
+            }
+            //for(const ticket of tsTickets)
+            //{
+            //  res.write(`${ticket.feature}<br>`);          
+            //}
+            res.write('</td>');
+          }
+          res.write('</tr>');                    
+        }
+      }
+      res.write('</table>');    
+      res.end('</body></html>');
+    }
+  ).listen(1337);  
+}
+
 class SprintAllocator
 {
-  constructor()
+  constructor(velocity)
   {
-    this.velocity = [6,6,6,6,6,6,6];
+    this.velocity = velocity;
     this.currentSprint = 0;
   }
 
   setSprint(ticket)
   {
-    if (ticket.currentTicketNumber === ticket.numberOfTickets)
+    // if it's a new ticket then try putting it in the first available sprint
+    if (ticket.currentTicketNumber === 1)
     {
       for (const v in this.velocity) 
       {
-        if (this.velocity[v] > 0) 
+        if (this.velocity[v] > 0)
+        {
           this.currentSprint = v;
+          break;
+        }
       }
     }
     // if there's room in the current sprint then I can put the ticket there
     if(this.velocity[this.currentSprint] > 0)
     {
       // put the ticket in the sprint and consume one of the velocity
-      ticket.sprint = this.currentSprint;
+      ticket.sprint = `${ticket.quadmester} (${this.currentSprint})`;
       this.velocity[this.currentSprint] -= 1;
 
       // increment the current sprint (wrapping 0-6)
@@ -476,11 +574,11 @@ class SprintAllocator
     // if I run out of velocity in this sprint then move to the next sprint
     else if (this.velocity[this.currentSprint] === 0)
     {
-      for(const s in this.velocity)
+      for(const sprint in this.velocity)
       {
-        if(this.velocity[s] !== 0)
+        if(this.velocity[sprint] !== 0)
         {
-          ticket.sprint = s;
+          ticket.sprint = `${ticket.quadmester} (${sprint})`;
           this.velocity[this.currentSprint] -= 1;
           this.currentSprint = (this.currentSprint + 1) % 7;
         }
@@ -496,7 +594,7 @@ class SprintAllocator
 function allocateTicketsToSprints(teamsTickets)
 {
   const theTickets = [];
-  const allocator = new SprintAllocator();
+  const allocator = new SprintAllocator([6,6,6,6,6,6,6]);
   for (const ticketGroup of teamsTickets)
   {
     for (const ticket of ticketGroup)
@@ -526,10 +624,11 @@ function splitTicketIntoSprints(ticket)
   const sprintTickets = [];
   for(let index = 0;index < numberOfTickets;index++)
   {
+    // copy the ticket into sprint ticket
     const sprintTicket = Object.assign({}, ticket);
     sprintTicket.numberOfTickets = numberOfTickets;
     sprintTicket.currentTicketNumber = index+1;
-    sprintTicket.title = `${sprintTicket.title} ${sprintTicket.numberOfTickets}/${sprintTicket.currentTicketNumber}`; 
+    sprintTicket.title = `${sprintTicket.title} ${sprintTicket.currentTicketNumber}/${sprintTicket.numberOfTickets}`; 
 
     // the last ticket can be a fraction of 10 points.
     if (index === numberOfTickets - 1)
