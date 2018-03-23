@@ -387,6 +387,7 @@ async function processGoogleSheet(err, response)
   if (err) 
   {
     console.log(`The google sheets API returned an error: ${err}`);
+    console.log('https://console.developers.google.com/apis/credentials/key/295?project=zeke');
     throw new Error(err);
   }
 
